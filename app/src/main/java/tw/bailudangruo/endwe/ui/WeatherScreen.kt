@@ -30,8 +30,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -46,12 +48,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import tw.bailudangruo.endwe.model.AirQuality
 import tw.bailudangruo.endwe.model.AlertLevel
 import tw.bailudangruo.endwe.model.ClimateAlert
-import tw.bailudangruo.endwe.model.CurrentWeather
 import tw.bailudangruo.endwe.model.DailyForecast
 import tw.bailudangruo.endwe.model.HourlyForecast
-import tw.bailudangruo.endwe.model.TaiwanLocations
 import tw.bailudangruo.endwe.model.WeatherCodeMapper
 import tw.bailudangruo.endwe.model.WeatherLocation
 import tw.bailudangruo.endwe.model.WeatherSnapshot
@@ -60,6 +61,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun WeatherApp(viewModel: WeatherViewModel = viewModel()) {
@@ -69,6 +71,8 @@ fun WeatherApp(viewModel: WeatherViewModel = viewModel()) {
         WeatherScreen(
             uiState = uiState,
             onLocationSelected = viewModel::selectLocation,
+            onSearchQueryChanged = viewModel::updateSearchQuery,
+            onToggleFavorite = viewModel::toggleFavorite,
             onRefresh = viewModel::refresh,
         )
     }
@@ -79,6 +83,8 @@ fun WeatherApp(viewModel: WeatherViewModel = viewModel()) {
 private fun WeatherScreen(
     uiState: WeatherUiState,
     onLocationSelected: (WeatherLocation) -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
+    onToggleFavorite: (WeatherLocation) -> Unit,
     onRefresh: () -> Unit,
 ) {
     PullToRefreshBox(
@@ -97,7 +103,18 @@ private fun WeatherScreen(
                 .padding(bottom = 28.dp),
         ) {
             Header(onRefresh)
+            CitySearchPanel(
+                query = uiState.searchQuery,
+                results = uiState.searchResults,
+                favorites = uiState.favoriteLocations,
+                isSearching = uiState.isSearching,
+                message = uiState.searchMessage,
+                onQueryChanged = onSearchQueryChanged,
+                onLocationSelected = onLocationSelected,
+                onToggleFavorite = onToggleFavorite,
+            )
             LocationSelector(
+                locations = uiState.favoriteLocations,
                 selected = uiState.selectedLocation,
                 onLocationSelected = onLocationSelected,
             )
@@ -108,7 +125,14 @@ private fun WeatherScreen(
             ) { isLoading ->
                 when {
                     isLoading -> LoadingContent()
-                    uiState.weather != null -> WeatherContent(uiState.weather)
+                    uiState.weather != null -> WeatherContent(
+                        weather = uiState.weather,
+                        isFavorite = uiState.favoriteLocations.any {
+                            it.isSamePlace(uiState.weather.location)
+                        },
+                        onToggleFavorite = onToggleFavorite,
+                    )
+
                     else -> ErrorContent(
                         message = uiState.errorMessage ?: "目前無法取得天氣資料。",
                         onRetry = onRefresh,
@@ -134,7 +158,7 @@ private fun Header(onRefresh: () -> Unit) {
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "即時掌握天氣與風險",
+                text = "天氣、空氣品質與防災警報",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -153,38 +177,129 @@ private fun Header(onRefresh: () -> Unit) {
 }
 
 @Composable
+private fun CitySearchPanel(
+    query: String,
+    results: List<WeatherLocation>,
+    favorites: List<WeatherLocation>,
+    isSearching: Boolean,
+    message: String?,
+    onQueryChanged: (String) -> Unit,
+    onLocationSelected: (WeatherLocation) -> Unit,
+    onToggleFavorite: (WeatherLocation) -> Unit,
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChanged,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("搜尋城市") },
+            placeholder = { Text("例如：橋頭、東京、台中") },
+            leadingIcon = { Text("🔎") },
+            trailingIcon = {
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            },
+        )
+
+        message?.let {
+            Text(
+                text = it,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        results.forEach { location ->
+            val isFavorite = favorites.any { it.isSamePlace(location) }
+            Surface(
+                onClick = { onLocationSelected(location) },
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(location.name, fontWeight = FontWeight.Bold)
+                        if (location.area.isNotBlank()) {
+                            Text(
+                                location.area,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    TextButton(onClick = { onToggleFavorite(location) }) {
+                        Text(if (isFavorite) "★ 已收藏" else "☆ 收藏")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LocationSelector(
+    locations: List<WeatherLocation>,
     selected: WeatherLocation,
     onLocationSelected: (WeatherLocation) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        TaiwanLocations.forEach { location ->
-            val isSelected = location == selected
-            Surface(
-                onClick = { onLocationSelected(location) },
-                shape = RoundedCornerShape(22.dp),
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                contentColor = if (isSelected) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            ) {
-                Text(
-                    text = "${location.name} · ${location.area}",
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                )
+    Column {
+        Text(
+            text = "收藏城市",
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        if (locations.isEmpty()) {
+            Text(
+                text = "搜尋城市後按下「收藏」，即可快速切換。",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            return@Column
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            locations.forEach { location ->
+                val isSelected = location.isSamePlace(selected)
+                Surface(
+                    onClick = { onLocationSelected(location) },
+                    shape = RoundedCornerShape(22.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                ) {
+                    Text(
+                        text = "★ ${location.name}",
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    )
+                }
             }
         }
     }
@@ -231,15 +346,27 @@ private fun ErrorContent(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun WeatherContent(weather: WeatherSnapshot) {
+private fun WeatherContent(
+    weather: WeatherSnapshot,
+    isFavorite: Boolean,
+    onToggleFavorite: (WeatherLocation) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
     ) {
-        CurrentWeatherCard(weather)
+        CurrentWeatherCard(
+            weather = weather,
+            isFavorite = isFavorite,
+            onToggleFavorite = onToggleFavorite,
+        )
+        weather.airQuality?.let {
+            SectionTitle("空氣品質")
+            AirQualityCard(it)
+        }
         if (weather.alerts.isNotEmpty()) {
-            SectionTitle("氣候提醒")
+            SectionTitle("警報與氣候提醒")
             Column(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -252,7 +379,7 @@ private fun WeatherContent(weather: WeatherSnapshot) {
         SectionTitle("7 日預報")
         DailyForecastList(weather.daily)
         Text(
-            text = "資料來源：Open-Meteo · 更新 ${formatObservedTime(weather.current.observedAt)}",
+            text = "資料來源：Open-Meteo；官方示警：NCDR · 更新 ${formatObservedTime(weather.current.observedAt)}",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,
@@ -261,7 +388,11 @@ private fun WeatherContent(weather: WeatherSnapshot) {
 }
 
 @Composable
-private fun CurrentWeatherCard(weather: WeatherSnapshot) {
+private fun CurrentWeatherCard(
+    weather: WeatherSnapshot,
+    isFavorite: Boolean,
+    onToggleFavorite: (WeatherLocation) -> Unit,
+) {
     val current = weather.current
     val visual = WeatherCodeMapper.visual(current.weatherCode, current.isDay)
 
@@ -304,7 +435,22 @@ private fun CurrentWeatherCard(weather: WeatherSnapshot) {
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
-                Text(text = visual.symbol, fontSize = 64.sp)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(text = visual.symbol, fontSize = 64.sp)
+                    Surface(
+                        onClick = { onToggleFavorite(weather.location) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.16f),
+                    ) {
+                        Text(
+                            text = if (isFavorite) "★ 已收藏" else "☆ 收藏",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -315,6 +461,56 @@ private fun CurrentWeatherCard(weather: WeatherSnapshot) {
                 MetricCard("濕度", "${current.humidity}%", Modifier.weight(1f))
                 MetricCard("降雨", "${formatOneDecimal(current.precipitation)} mm", Modifier.weight(1f))
                 MetricCard("風速", "${current.windSpeed.toInt()} km/h", Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AirQualityCard(airQuality: AirQuality) {
+    val (label, color) = when (airQuality.usAqi) {
+        in 0..50 -> "良好" to Color(0xFF4CAF50)
+        in 51..100 -> "普通" to Color(0xFFFFB300)
+        in 101..150 -> "敏感族群不健康" to Color(0xFFFF8F00)
+        in 151..200 -> "不健康" to Color(0xFFE53935)
+        in 201..300 -> "非常不健康" to Color(0xFF8E24AA)
+        else -> "危害" to Color(0xFF7E0023)
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = color.copy(alpha = 0.12f),
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "AQI ${airQuality.usAqi}",
+                    color = color,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "PM2.5  ${formatOneDecimal(airQuality.pm25)} μg/m³",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Text(
+                    text = "PM10  ${formatOneDecimal(airQuality.pm10)} μg/m³",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
     }
@@ -389,6 +585,14 @@ private fun AlertCard(alert: ClimateAlert) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                alert.source?.let {
+                    Text(
+                        text = "來源：$it",
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
             }
         }
     }
@@ -479,6 +683,10 @@ private fun DailyForecastList(daily: List<DailyForecast>) {
         }
     }
 }
+
+private fun WeatherLocation.isSamePlace(other: WeatherLocation): Boolean =
+    abs(latitude - other.latitude) < 0.01 &&
+        abs(longitude - other.longitude) < 0.01
 
 private fun formatHour(value: String): String = runCatching {
     LocalDateTime.parse(value).format(DateTimeFormatter.ofPattern("HH:mm"))
