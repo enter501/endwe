@@ -12,13 +12,29 @@ val signingProperties = Properties().apply {
         signingPropertiesFile.inputStream().use { load(it) }
     }
 }
+fun signingValue(environmentName: String, propertyName: String): String? =
+    System.getenv(environmentName)?.takeIf { it.isNotBlank() }
+        ?: signingProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingValue("ENDWE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("ENDWE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ENDWE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ENDWE_KEY_PASSWORD", "keyPassword")
+val releaseSigningReady = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 val releaseRequested = gradle.startParameter.taskNames.any {
     it.contains("release", ignoreCase = true)
 }
 
-if (releaseRequested && signingProperties.isEmpty) {
+if (releaseRequested && !releaseSigningReady) {
     throw GradleException(
-        "Release signing file is missing: ${signingPropertiesFile.absolutePath}"
+        "Release signing is missing. Configure ${signingPropertiesFile.absolutePath} " +
+            "or the ENDWE_STORE_FILE, ENDWE_STORE_PASSWORD, ENDWE_KEY_ALIAS, " +
+            "and ENDWE_KEY_PASSWORD environment variables."
     )
 }
 
@@ -37,12 +53,12 @@ android {
     }
 
     signingConfigs {
-        if (signingProperties.isNotEmpty()) {
+        if (releaseSigningReady) {
             create("release") {
-                storeFile = file(signingProperties.getProperty("storeFile"))
-                storePassword = signingProperties.getProperty("storePassword")
-                keyAlias = signingProperties.getProperty("keyAlias")
-                keyPassword = signingProperties.getProperty("keyPassword")
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
