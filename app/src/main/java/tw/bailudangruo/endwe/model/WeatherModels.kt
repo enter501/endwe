@@ -5,6 +5,7 @@ data class WeatherLocation(
     val area: String,
     val latitude: Double,
     val longitude: Double,
+    val countryCode: String = "TW",
 )
 
 data class CurrentWeather(
@@ -15,6 +16,13 @@ data class CurrentWeather(
     val windSpeed: Double,
     val weatherCode: Int,
     val isDay: Boolean,
+    val observedAt: String,
+)
+
+data class AirQuality(
+    val usAqi: Int,
+    val pm25: Double,
+    val pm10: Double,
     val observedAt: String,
 )
 
@@ -33,12 +41,15 @@ data class DailyForecast(
     val precipitationProbability: Int,
     val uvIndex: Double,
     val maximumWindSpeed: Double,
+    val precipitationSum: Double = 0.0,
+    val maximumWindGust: Double = 0.0,
 )
 
 data class ClimateAlert(
     val title: String,
     val message: String,
     val level: AlertLevel,
+    val source: String? = null,
 )
 
 enum class AlertLevel {
@@ -54,6 +65,7 @@ data class WeatherSnapshot(
     val daily: List<DailyForecast>,
     val alerts: List<ClimateAlert>,
     val timezone: String,
+    val airQuality: AirQuality? = null,
 )
 
 val TaiwanLocations = listOf(

@@ -60,4 +60,38 @@ class ClimateAlertFactoryTest {
 
         assertTrue(ClimateAlertFactory.create(current, today).isEmpty())
     }
+
+    @Test
+    fun heavyRainAndTyphoonStrengthWindCreateDangerAlerts() {
+        val current = CurrentWeather(
+            temperature = 28.0,
+            apparentTemperature = 31.0,
+            humidity = 90,
+            precipitation = 45.0,
+            windSpeed = 35.0,
+            weatherCode = 95,
+            isDay = true,
+            observedAt = "2026-09-15T16:00",
+        )
+        val today = DailyForecast(
+            date = "2026-09-15",
+            weatherCode = 95,
+            maximumTemperature = 30.0,
+            minimumTemperature = 25.0,
+            precipitationProbability = 100,
+            uvIndex = 2.0,
+            maximumWindSpeed = 80.0,
+            precipitationSum = 230.0,
+            maximumWindGust = 125.0,
+        )
+
+        val alerts = ClimateAlertFactory.create(current, today)
+
+        assertTrue(alerts.any {
+            it.title == "豪雨風險預警" && it.level == AlertLevel.Danger
+        })
+        assertTrue(alerts.any {
+            it.title == "颱風等級強風風險" && it.level == AlertLevel.Danger
+        })
+    }
 }
