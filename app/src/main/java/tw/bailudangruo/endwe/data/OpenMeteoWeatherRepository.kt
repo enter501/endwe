@@ -192,8 +192,8 @@ class OpenMeteoWeatherRepository : WeatherRepository {
                 precipitationProbability = dailyRain.intOrZero(index),
                 uvIndex = dailyUv.doubleOrZero(index),
                 maximumWindSpeed = dailyWind.doubleOrZero(index),
-                precipitationSum = dailyRainSum.doubleOrZero(index),
-                maximumWindGust = dailyGust.doubleOrZero(index),
+                precipitationSum = dailyRainSum?.doubleOrZero(index) ?: 0.0,
+                maximumWindGust = dailyGust?.doubleOrZero(index) ?: 0.0,
             )
         }
 
@@ -295,9 +295,6 @@ class OpenMeteoWeatherRepository : WeatherRepository {
 
     private fun JSONArray.doubleOrZero(index: Int): Double =
         if (isNull(index)) 0.0 else optDouble(index, 0.0)
-
-    private fun JSONArray?.doubleOrZero(index: Int): Double =
-        if (this == null || index >= length() || isNull(index)) 0.0 else optDouble(index, 0.0)
 
     private companion object {
         const val NCDR_ALERT_ENDPOINT = "https://alerts.ncdr.nat.gov.tw/JSONAtomFeed.ashx"
