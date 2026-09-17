@@ -1,0 +1,106 @@
+name: Publish Android release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/release-version.txt"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-android-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(tr -d '[:space:]' < .github/release-version.txt)"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version: $VERSION" >&2
+            exit 1
+          fi
+          APP_VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          if [[ "v$APP_VERSION" != "$VERSION" ]]; then
+            echo "Version mismatch: marker=$VERSION app=v$APP_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Grant Gradle permission
+        run: chmod +x gradlew
+
+      - name: Restore release keystore
+        env:
+          ENDWE_KEYSTORE_BASE64: ${{ secrets.ENDWE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ENDWE_KEYSTORE_BASE64"
+          printf '%s' "$ENDWE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/endwe-release.jks"
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build signed release APK
+        env:
+          ENDWE_STORE_FILE: ${{ runner.temp }}/endwe-release.jks
+          ENDWE_STORE_PASSWORD: ${{ secrets.ENDWE_STORE_PASSWORD }}
+          ENDWE_KEY_ALIAS: ${{ secrets.ENDWE_KEY_ALIAS }}
+          ENDWE_KEY_PASSWORD: ${{ secrets.ENDWE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Prepare release asset
+        id: asset
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ASSET_NAME="Endwe-${VERSION}-release.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$ASSET_NAME"
+          SHA256="$(sha256sum "$ASSET_NAME" | awk '{print $1}')"
+          echo "name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ASSET_NAME: ${{ steps.asset.outputs.name }}
+          SHA256: ${{ steps.asset.outputs.sha256 }}
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          Endwe $VERSION 正式版 Android APK。
+
+          新增功能：
+          - 城市搜尋與收藏城市
+          - 空氣品質（AQI、PM2.5、PM10）
+          - 颱風、豪雨與大雨警報
+          - NCDR 民生示警與 Open-Meteo 預報整合
+
+          SHA-256: $SHA256
+          EOF
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release edit "$VERSION" --title "Endwe $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$VERSION" --target "$GITHUB_SHA" --title "Endwe $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$VERSION" "$ASSET_NAME" --clobber
