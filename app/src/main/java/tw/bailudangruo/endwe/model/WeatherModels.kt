@@ -71,5 +71,6 @@ data class WeatherSnapshot(
 val TaiwanLocations = listOf(
     WeatherLocation("高雄", "南部", 22.6273, 120.3014),
     WeatherLocation("台南", "南部", 22.9999, 120.2269),
+    WeatherLocation("屏東", "南部", 22.6628, 120.4916),
     WeatherLocation("台北", "北部", 25.0330, 121.5654),
 )
